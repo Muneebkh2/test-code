@@ -55,40 +55,6 @@ class BookingRepository extends BaseRepository
      * @param $user_id
      * @return array
      */
-    public function getUsersJobs($user_id)
-    {
-        $cuser = User::find($user_id);
-        $usertype = '';
-        $emergencyJobs = array();
-        $noramlJobs = array();
-        if ($cuser && $cuser->is('customer')) {
-            $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback')->whereIn('status', ['pending', 'assigned', 'started'])->orderBy('due', 'asc')->get();
-            $usertype = 'customer';
-        } elseif ($cuser && $cuser->is('translator')) {
-            $jobs = Job::getTranslatorJobs($cuser->id, 'new');
-            $jobs = $jobs->pluck('jobs')->all();
-            $usertype = 'translator';
-        }
-        if ($jobs) {
-            foreach ($jobs as $jobitem) {
-                if ($jobitem->immediate == 'yes') {
-                    $emergencyJobs[] = $jobitem;
-                } else {
-                    $noramlJobs[] = $jobitem;
-                }
-            }
-            $noramlJobs = collect($noramlJobs)->each(function ($item, $key) use ($user_id) {
-                $item['usercheck'] = Job::checkParticularJob($user_id, $item);
-            })->sortBy('due')->all();
-        }
-
-        return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'cuser' => $cuser, 'usertype' => $usertype];
-    }
-
-    /**
-     * @param $user_id
-     * @return array
-     */
     public function getUsersJobsHistory($user_id, Request $request)
     {
         $page = $request->get('page');
@@ -127,17 +93,14 @@ class BookingRepository extends BaseRepository
      */
     public function store($user, $data)
     {
-
         $immediatetime = 5;
         $consumer_type = $user->userMeta->consumer_type;
         if ($user->user_type == env('CUSTOMER_ROLE_ID')) {
             $cuser = $user;
 
             if (!isset($data['from_language_id'])) {
-                $response['status'] = 'fail';
-                $response['message'] = "Du måste fylla in alla fält";
-                $response['field_name'] = "from_language_id";
-                return $response;
+                // we can use this method to follow DRY, also here we need to use Request Validation class of laravel.
+                $this->responseArray('fail', "Du måste fylla in alla fält", "from_language_id");
             }
             if ($data['immediate'] == 'no') {
                 if (isset($data['due_date']) && $data['due_date'] == '') {
@@ -277,6 +240,14 @@ class BookingRepository extends BaseRepository
 
         return $response;
 
+    }
+
+    private function responseArray($status, $message, $fieldName): array
+    {
+        $response['status'] = $status;
+        $response['message'] = $message;
+        $response['field_name'] = $fieldName;
+        return $response;
     }
 
     /**
@@ -1820,6 +1791,7 @@ class BookingRepository extends BaseRepository
             } else {
                 $allJobs->where('job_type', '=', 'unpaid');
             }
+
             if (isset($requestdata['feedback']) && $requestdata['feedback'] != 'false') {
                 $allJobs->where('ignore_feedback', '0');
                 $allJobs->whereHas('feedback', function($q) {
@@ -1843,6 +1815,7 @@ class BookingRepository extends BaseRepository
                     $allJobs->where('user_id', '=', $user->id);
                 }
             }
+
             if (isset($requestdata['filter_timetype']) && $requestdata['filter_timetype'] == "created") {
                 if (isset($requestdata['from']) && $requestdata['from'] != "") {
                     $allJobs->where('created_at', '>=', $requestdata["from"]);
@@ -1853,6 +1826,7 @@ class BookingRepository extends BaseRepository
                 }
                 $allJobs->orderBy('created_at', 'desc');
             }
+
             if (isset($requestdata['filter_timetype']) && $requestdata['filter_timetype'] == "due") {
                 if (isset($requestdata['from']) && $requestdata['from'] != "") {
                     $allJobs->where('due', '>=', $requestdata["from"]);
